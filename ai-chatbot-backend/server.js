@@ -11,7 +11,7 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: "https://ai-test-chat.vercel.app/",
+    origin: "https://ai-test-chat.vercel.app",
     methods: ["GET", "POST"]
   }
 });
