@@ -4,6 +4,8 @@ const socketIo = require('socket.io');
 const mongoose = require('mongoose');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const cors = require('cors');
+const dotenv = require('dotenv');
+dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
@@ -18,7 +20,7 @@ app.use(cors());
 app.use(express.json());
 
 // Connect to MongoDB
-mongoose.connect('mongodb://localhost:27017/ai_chatbot', { useNewUrlParser: true, useUnifiedTopology: true },()=>{
+mongoose.connect(process.env.DB_URI||'mongodb://localhost:27017/ai_chatbot', { useNewUrlParser: true, useUnifiedTopology: true },()=>{
     console.log("db")
 });
 
@@ -38,7 +40,7 @@ const sessionSchema = new mongoose.Schema({
 const Session = mongoose.model('Session', sessionSchema);
 
 // Initialize the Google Generative AI
-const genAI = new GoogleGenerativeAI('AIzaSyCAdGlCS1k90xNa2ACI5G9WcQOVJ-mRYTs');
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
 // Business configuration
