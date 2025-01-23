@@ -20,8 +20,11 @@ app.use(cors());
 app.use(express.json());
 
 // Connect to MongoDB
-mongoose.connect(process.env.DB_URI||'mongodb://localhost:27017/ai_chatbot', { useNewUrlParser: true, useUnifiedTopology: true },()=>{
-    console.log("db")
+mongoose.connect(process.env.DB_URI, {
+  useNewUrlParser: true, 
+  useUnifiedTopology: true,
+  ssl: true,
+  tlsInsecure: true // Only if you're having SSL certificate issues
 });
 
 // Temporary storage for anonymous chats
