@@ -11,7 +11,8 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: "https://ai-test-chat.vercel.app",
+    // origin: "https://ai-test-chat.vercel.app",
+    origin: "*",
     methods: ["GET", "POST"]
   }
 });
@@ -23,9 +24,20 @@ app.use(express.json());
 mongoose.connect(process.env.DB_URI, {
   useNewUrlParser: true, 
   useUnifiedTopology: true,
-  ssl: true,
-  tlsInsecure: true // Only if you're having SSL certificate issues
+  // ssl: true,
+  // tlsInsecure: true // Only if you're having SSL certificate issues
 });
+
+app.get('/customers', async (req, res) => {
+  const session = await Session.find();
+  if(session){
+    res.status(200).send(session);
+  }
+  else {
+    res.status(500).send('Failed to fetch customer sessions');
+  }
+});
+
 
 // Temporary storage for anonymous chats
 const tempChats = new Map();
@@ -33,6 +45,7 @@ const tempChats = new Map();
 // Create a schema for user sessions
 const sessionSchema = new mongoose.Schema({
   email: { type: String, unique: true },
+  roomId: String,
   chatHistory: [{
     role: String,
     content: String,
@@ -156,6 +169,8 @@ async function handleChat(sessionId, message) {
     } else {
       session.email = email;
     }
+    // Assign a room only if user now has an email
+    session.roomId = `room-${sessionId}`;
     activeChats.set(sessionId, session);
   }
 
@@ -207,6 +222,7 @@ Instructions:
         { email: session.email },
         { 
           email: session.email,
+          roomId: session.roomId, 
           chatHistory: session.chatHistory 
         },
         { upsert: true }
@@ -280,7 +296,22 @@ const TAG_SYMBOL = '⚡';
 io.on('connection', (socket) => {
   const sessionId = socket.id;
   console.log('New connection:', sessionId);
-  
+
+  // Create a room
+  const roomId = `room-${sessionId}`;
+
+  // Check if session exists
+  let session = activeChats.get(sessionId);
+  if (!session) {
+    session = { email: null, chatHistory: [], roomId };
+    activeChats.set(sessionId, session);
+  } else {
+    session.roomId = roomId;
+  }
+
+  // Join the new room
+  socket.join(roomId);
+
   // Send greeting immediately on connection
   sendGreeting(socket, sessionId);
 
