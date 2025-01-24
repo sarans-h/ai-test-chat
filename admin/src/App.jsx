@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import './ChatHistory.css';
+import io from 'socket.io-client';
+import './App.css';
 
-const ChatHistory = () => {
+const socket = io('http://localhost:5000');
+
+const App = () => {
   const [customers, setCustomers] = useState([]);
   const [selectedChat, setSelectedChat] = useState(null);
   const [inputMessage, setInputMessage] = useState('');
@@ -9,9 +12,26 @@ const ChatHistory = () => {
   useEffect(() => {
     fetch('http://localhost:5000/customers')
       .then(response => response.json())
-      .then(data => setCustomers(data))
+      .then(data => {
+        const customersWithStatus = data.map(customer => ({
+          ...customer,
+          isOnline: false
+        }));
+        setCustomers(customersWithStatus);
+        customersWithStatus.forEach(customer => {
+          socket.emit('checkRoomStatus', customer.roomId, (response) => {
+            setCustomers(prevCustomers => prevCustomers.map(c => 
+              c.roomId === customer.roomId ? { ...c, isOnline: response.isActive } : c
+            ));
+          });
+        });
+      })
       .catch(error => console.error('Error fetching customers:', error));
   }, []);
+
+  const handleSelectChat = (customer) => {
+    setSelectedChat(customer);
+  };
 
   const handleSendMessage = () => {
     if (inputMessage.trim() && selectedChat) {
@@ -35,10 +55,10 @@ const ChatHistory = () => {
         {customers.map((customer, index) => (
           <div
             key={index}
-            onClick={() => setSelectedChat(customer)}
+            onClick={() => handleSelectChat(customer)}
             className={`chat-item ${selectedChat === customer ? 'selected' : ''}`}
           >
-            {customer.email}
+            {customer.email} {customer.isOnline ? '(Online)' : '(Offline)'}
           </div>
         ))}
       </div>
@@ -72,4 +92,4 @@ const ChatHistory = () => {
   );
 }
 
-export default ChatHistory;
+export default App;

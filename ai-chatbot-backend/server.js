@@ -91,6 +91,8 @@ Always respond in a tone and style suitable for this business. Your goal is to h
 Progress the conversation naturally, asking relevant questions to gather information. Use the following custom questions when appropriate:
 ${businessInfo.customQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')}
 
+
+
 When you ask an important question that's crucial for lead generation (including the custom questions above), add the keyword ⚡complete⚡ at the end of the question. This is extremely important.
 
 Always maintain a professional character and stay respectful.
@@ -170,7 +172,7 @@ async function handleChat(sessionId, message) {
       session.email = email;
     }
     // Assign a room only if user now has an email
-    session.roomId = `room-${sessionId}`;
+    session.roomId = `${sessionId}`;
     activeChats.set(sessionId, session);
   }
 
@@ -298,7 +300,7 @@ io.on('connection', (socket) => {
   console.log('New connection:', sessionId);
 
   // Create a room
-  const roomId = `room-${sessionId}`;
+  const roomId = `${sessionId}`;
 
   // Check if session exists
   let session = activeChats.get(sessionId);
@@ -314,6 +316,27 @@ io.on('connection', (socket) => {
 
   // Send greeting immediately on connection
   sendGreeting(socket, sessionId);
+
+  socket.on('checkRoomStatus', (roomId, callback) => {
+    const isActive = io.sockets.adapter.rooms.has(roomId);
+    callback({ isActive });
+  });
+
+  socket.on('joinRoom', (roomId) => {
+    socket.join(roomId);
+  });
+
+  socket.on('adminMessage', ({ roomId, message }) => {
+    io.to(roomId).emit(EVENT_TYPES.RESPONSE, {
+      message,
+      sessionInfo: {
+        hasEmail: true,
+        email: 'admin@example.com',
+        messageCount: 0,
+        type: MESSAGE_ROLES.ASSISTANT
+      }
+    });
+  });
 
   socket.on('message', async (messageText) => {
     try {
