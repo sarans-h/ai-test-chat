@@ -34,7 +34,7 @@
   text-align: right;
 }
 
-.ai {
+.assistant {
   background-color: #f0f0f0;
   text-align: left;
 }
@@ -42,6 +42,7 @@
 .system {
   background-color: #ffe6e6;
   text-align: center;
+  font-style: italic;
 }
 
 .error {
@@ -85,4 +86,23 @@ button:hover {
   background: #f0f0f0;
   border-radius: 4px;
   font-family: monospace;
+}
+
+.admin {
+  background-color: #d1e7dd;
+  text-align: left;
+  font-weight: bold;
+}
+
+.message.representative {
+  background-color: #d1e7dd; /* Light green background */
+  text-align: left;
+  border-left: 5px solid #0f5132; /* Dark green border */
+  font-weight: bold;
+}
+
+/* Optional: Different styles for verified representative messages */
+.message.representative.verified {
+  background-color: #bde0fe; /* Light blue background for verified */
+  border-left: 5px solid #0d6efd; /* Blue border */
 }

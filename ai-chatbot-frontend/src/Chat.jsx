@@ -8,6 +8,8 @@ const MESSAGE_TYPES = {
   USER: 'user',
   ASSISTANT: 'assistant',
   SYSTEM: 'system',
+  REPRESENTATIVE: 'representative', // Added representative type
+  ADMIN: 'admin',
   ERROR: 'error'
 };
 
@@ -15,7 +17,10 @@ const EVENT_TYPES = {
   RESPONSE: 'ai-response',
   REALTIME: 'realtime',
   APPOINTMENT: 'appointment',
-  ERROR: 'error'
+  ERROR: 'error',
+  REPRESENTATIVE_MESSAGE: 'representative-message', // New event type
+  HANDOVER: 'handover',
+  AI_RESUME: 'ai-resume'
 };
 
 function Chat() {
@@ -87,12 +92,78 @@ function Chat() {
       }]);
     });
 
+    socket.on('handover', ({ message, sessionInfo }) => {
+      setSessionInfo(prev => ({ ...prev, ...sessionInfo }));
+      setMessages(prev => [...prev, { 
+        type: MESSAGE_TYPES.SYSTEM, 
+        content: message, 
+        isVerified: sessionInfo?.hasEmail,
+        tags: sessionInfo?.tags || []
+      }]);
+    });
+
+    socket.on('ai-resume', ({ message, sessionInfo }) => {
+      setSessionInfo(prev => ({ ...prev, ...sessionInfo }));
+      setMessages(prev => [...prev, { 
+        type: MESSAGE_TYPES.SYSTEM, 
+        content: message, 
+        isVerified: sessionInfo?.hasEmail,
+        tags: sessionInfo?.tags || []
+      }]);
+    });
+
+    // Listen for admin messages
+    socket.on('admin-response', ({ message, sessionInfo }) => {
+      setSessionInfo(prev => ({ ...prev, ...sessionInfo }));
+      setMessages(prev => [...prev, { 
+        type: MESSAGE_TYPES.ADMIN, 
+        content: message, 
+        isVerified: sessionInfo?.hasEmail,
+        tags: sessionInfo?.tags || []
+      }]);
+    });
+
+    // Listen for user messages from admin
+    socket.on('user-message', ({ roomId, message, sessionInfo }) => {
+      setSessionInfo(prev => ({ ...prev, ...sessionInfo }));
+      setMessages(prev => [...prev, { 
+        type: MESSAGE_TYPES.USER, 
+        content: message, 
+        isVerified: sessionInfo?.hasEmail,
+        tags: sessionInfo?.tags || []
+      }]);
+    });
+
+    // Listen for representative messages
+    socket.on(EVENT_TYPES.REPRESENTATIVE_MESSAGE, ({ message, sessionInfo }) => {
+      setSessionInfo(prev => ({ ...prev, ...sessionInfo }));
+      
+      // Prevent duplicate representative messages
+      setMessages(prev => {
+        const lastMessage = prev[prev.length - 1];
+        if (lastMessage.type === MESSAGE_TYPES.REPRESENTATIVE && lastMessage.content === message) {
+          return prev;
+        }
+        return [...prev, { 
+          type: MESSAGE_TYPES.REPRESENTATIVE, 
+          content: message, 
+          isVerified: sessionInfo?.hasEmail,
+          tags: sessionInfo?.tags || []
+        }];
+      });
+    });
+
     return () => {
       socket.off('connect');
       socket.off(EVENT_TYPES.RESPONSE);
       socket.off(EVENT_TYPES.REALTIME);
       socket.off(EVENT_TYPES.APPOINTMENT);
       socket.off(EVENT_TYPES.ERROR);
+      socket.off('handover');
+      socket.off('ai-resume');
+      socket.off('admin-response');
+      socket.off('user-message');
+      socket.off(EVENT_TYPES.REPRESENTATIVE_MESSAGE);
     };
   }, []);
 
