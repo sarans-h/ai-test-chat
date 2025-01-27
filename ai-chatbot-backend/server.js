@@ -1,18 +1,18 @@
-const express = require("express")
-const http = require("http")
-const socketIo = require("socket.io")
-const mongoose = require("mongoose")
-const { GoogleGenerativeAI } = require("@google/generative-ai")
-const cors = require("cors")
-const dotenv = require("dotenv")
-const axios = require("axios")
+import express from "express"
+import http from "http"
+import { Server } from "socket.io"
+import mongoose from "mongoose"
+import { GoogleGenerativeAI } from "@google/generative-ai"
+import cors from "cors"
+import dotenv from "dotenv"
+import axios from "axios"
+
 dotenv.config()
 
 const app = express()
 const server = http.createServer(app)
-const io = socketIo(server, {
+const io = new Server(server, {
   cors: {
-    // origin: "https://ai-test-chat.vercel.app",
     origin: "*",
     methods: ["GET", "POST"],
   },
@@ -20,15 +20,6 @@ const io = socketIo(server, {
 
 app.use(cors())
 app.use(express.json())
-
-// Connect to MongoDB
-mongoose.connect(process.env.DB_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-  // ssl: true,
-  // tlsInsecure: true // Only if you're having SSL certificate issues
-})
-
 app.get("/customers", async (req, res) => {
   const session = await Session.find()
   if (session) {
@@ -41,11 +32,11 @@ app.get("/notify", async (req, res) => {
   console.log("notified");
   res.status(200).send("Notification received");
 })
+mongoose.connect(process.env.DB_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+})
 
-// Temporary storage for anonymous chats
-const tempChats = new Map()
-
-// Create a schema for user sessions
 const sessionSchema = new mongoose.Schema({
   email: { type: String, unique: true },
   roomId: String,
@@ -60,11 +51,9 @@ const sessionSchema = new mongoose.Schema({
 
 const Session = mongoose.model("Session", sessionSchema)
 
-// Initialize the Google Generative AI
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY)
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" })
 
-// Business configuration
 const businessInfo = {
   name: "TechGadget Store",
   description:
@@ -82,7 +71,6 @@ const businessInfo = {
     "Are there any must-have features you're looking for?",
   ],
   appointmentUrl: "/appointmentAttachment",
-  // realtimeChatUrl: "https://www.techgadgetstore.com/realtime-chat",
 }
 
 const systemPrompt = `You are a helpful, professional assistant designed specifically for ${businessInfo.name}. ${businessInfo.description}
@@ -145,14 +133,13 @@ Example responses:
 "The representative has disconnected. Is there anything else I can help you with? ⚡ai-resume⚡"
 `
 
-// Session management object
-const activeChats = new Map() // { socketId: { email: string, chatHistory: array } }
+const activeChats = new Map()
 
 const MESSAGE_ROLES = {
   USER: "user",
   ASSISTANT: "assistant",
   SYSTEM: "system",
-  REPRESENTATIVE: "representative", // New role for representative messages
+  REPRESENTATIVE: "representative",
 }
 
 const EVENT_TYPES = {
@@ -162,12 +149,11 @@ const EVENT_TYPES = {
   ERROR: "error",
   HANDOVER: "handover",
   AI_RESUME: "ai-resume",
-  REPRESENTATIVE_MESSAGE: "representative-message", // New event type for representative messages
-  JOIN_AS_REPRESENTATIVE: "joinAsRepresentative", // New event type for representatives joining
-  LEAVE_AS_REPRESENTATIVE: "leaveAsRepresentative" // New event type for representatives leaving
+  REPRESENTATIVE_MESSAGE: "representative-message",
+  JOIN_AS_REPRESENTATIVE: "joinAsRepresentative",
+  LEAVE_AS_REPRESENTATIVE: "leaveAsRepresentative",
 }
 
-// Function to send a message and maintain the context
 async function handleChat(sessionId, message, isRepresentative = false, isSystemMessage = false) {
   let session = activeChats.get(sessionId)
   if (!session) {
@@ -175,7 +161,6 @@ async function handleChat(sessionId, message, isRepresentative = false, isSystem
     activeChats.set(sessionId, session)
   }
 
-  // Handle email detection from message text
   const emailMatch = message.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/)
 
   if (emailMatch && !session.email) {
@@ -192,14 +177,24 @@ async function handleChat(sessionId, message, isRepresentative = false, isSystem
     activeChats.set(sessionId, session)
   }
 
-  // Add message to history
   session.chatHistory.push({
     role: isSystemMessage ? MESSAGE_ROLES.SYSTEM : isRepresentative ? MESSAGE_ROLES.REPRESENTATIVE : MESSAGE_ROLES.USER,
     content: message,
     timestamp: new Date(),
   })
 
-  // If it's a system message, we don't need to process it further
+  if (session.email && (isRepresentative || !isSystemMessage)) {
+    await Session.findOneAndUpdate(
+      { email: session.email },
+      {
+        email: session.email,
+        roomId: session.roomId,
+        chatHistory: session.chatHistory,
+      },
+      { upsert: true },
+    )
+  }
+
   if (isSystemMessage) {
     return {
       message: message,
@@ -213,7 +208,6 @@ async function handleChat(sessionId, message, isRepresentative = false, isSystem
     }
   }
 
-  // If a representative has joined
   if (isRepresentative && !session.isWithRepresentative) {
     session.isWithRepresentative = true
     session.waitingForRepresentative = false
@@ -238,7 +232,6 @@ async function handleChat(sessionId, message, isRepresentative = false, isSystem
     }
   }
 
-  // If the message is from a representative, just return it
   if (isRepresentative) {
     return {
       message: message,
@@ -252,7 +245,6 @@ async function handleChat(sessionId, message, isRepresentative = false, isSystem
     }
   }
 
-  // If we're with a representative, don't process with AI
   if (session.isWithRepresentative) {
     return {
       message: "You are now chatting with a representative.",
@@ -266,7 +258,6 @@ async function handleChat(sessionId, message, isRepresentative = false, isSystem
     }
   }
 
-  // Prepare AI context
   const contextPrompt = `
 ${systemPrompt}
 
@@ -292,24 +283,20 @@ Instructions:
 `
 
   try {
-    // Get AI response
     const chat = model.startChat()
     const result = await chat.sendMessage(contextPrompt)
     const aiResponse = result.response.text()
 
-    // Check if we need to wait for a representative
     if (aiResponse.includes("⚡realtime⚡")) {
       session.waitingForRepresentative = true
     }
 
-    // Add AI response to history
     session.chatHistory.push({
       role: MESSAGE_ROLES.ASSISTANT,
       content: aiResponse,
       timestamp: new Date(),
     })
 
-    // Save to DB if email exists
     if (session.email) {
       await Session.findOneAndUpdate(
         { email: session.email },
@@ -322,11 +309,9 @@ Instructions:
       )
     }
 
-    // Update active session
     activeChats.set(sessionId, session)
 
-    // Standardized response object
-    const responseObject = {
+    return {
       message: aiResponse,
       sessionInfo: {
         hasEmail: !!session.email,
@@ -337,8 +322,6 @@ Instructions:
         isWithRepresentative: session.isWithRepresentative,
       },
     }
-
-    return responseObject
   } catch (error) {
     console.error("AI Response Error:", error)
     throw error
@@ -387,38 +370,26 @@ Instructions:
 }
 
 const TAG_SYMBOL = "⚡"
-console.log("hi")
+
 io.on("connection", (socket) => {
   const sessionId = socket.id
   console.log("New connection:", sessionId)
 
-  // Create a room
   const roomId = `${sessionId}`
 
-  // Check if session exists
   let session = activeChats.get(sessionId)
   if (!session) {
     session = { email: null, chatHistory: [], roomId, waitingForRepresentative: false, isWithRepresentative: false }
-
     activeChats.set(sessionId, session)
-
-    // Add a system message for user join
-    handleChat(sessionId, "User has joined the chat.", false, true)
-      .then((response) => {
-        // We don't need to emit this message to the client
-        // console.log("User join message added to chat history")
-      })
-      .catch((error) => {
-        console.error("Error adding user join message:", error)
-      })
+    handleChat(sessionId, "User has joined the chat.", false, true).catch((error) => {
+      console.error("Error adding user join message:", error)
+    })
   } else {
     session.roomId = roomId
   }
 
-  // Join the new room
   socket.join(roomId)
 
-  // Send greeting immediately on connection
   sendGreeting(socket, sessionId)
 
   socket.on("checkRoomStatus", (roomId, callback) => {
@@ -430,11 +401,9 @@ io.on("connection", (socket) => {
     socket.join(roomId)
   })
 
-  // Handle user messages
   socket.on("message", async (messageText) => {
     try {
       const response = await handleChat(sessionId, messageText)
-      // console.log(response);
 
       const hasRealtimeTag = response.message.includes(`${TAG_SYMBOL}realtime${TAG_SYMBOL}`)
       const hasAppointmentTag = response.message.includes(`${TAG_SYMBOL}appointment${TAG_SYMBOL}`)
@@ -456,45 +425,35 @@ io.on("connection", (socket) => {
 
       io.to(roomId).emit(eventType, {
         message: cleanMessage,
-        link:
-          eventType === EVENT_TYPES.APPOINTMENT
-              ? businessInfo.appointmentUrl
-              : null,
+        link: eventType === EVENT_TYPES.APPOINTMENT ? businessInfo.appointmentUrl : null,
         sessionInfo: {
           ...response.sessionInfo,
           tags,
         },
       })
 
-      console.log(eventType)
       if (eventType === EVENT_TYPES.REALTIME) {
         axios.get("http://localhost:5000/notify").catch(console.error)
       }
 
-      // Emit the original user message to the admin room
       io.to("admin").emit("user-message", {
         roomId: roomId,
-        message: messageText, // Use the original user message instead of the system message
+        message: messageText,
         sessionInfo: response.sessionInfo,
       })
 
-      // If waiting for representative, broadcast to admin sockets
       if (response.sessionInfo.waitingForRepresentative) {
         io.to("admin").emit("customerWaiting", {
           roomId: response.sessionInfo.roomId,
           email: response.sessionInfo.email,
         })
       }
-
-      // Prevent sending system messages like "Message forwarded to representative" to admin
-      // Ensure that only the original user message is sent
     } catch (error) {
       console.error("Error:", error)
       socket.emit(EVENT_TYPES.ERROR, "An error occurred while processing your request.")
     }
   })
 
-  // Handle admin messages
   socket.on("adminMessage", async ({ roomId, message }) => {
     try {
       const response = await handleChat(roomId, message, true, true)
@@ -511,10 +470,9 @@ io.on("connection", (socket) => {
     }
   })
 
-  // Add an event for admins to join a room
   socket.on(EVENT_TYPES.JOIN_AS_REPRESENTATIVE, (roomId) => {
     socket.join(roomId)
-    socket.join("admin") // Join the admin room for broadcasts
+    socket.join("admin")
     handleChat(roomId, "A representative has joined the conversation. ⚡handover⚡", true, true)
       .then((response) => {
         io.to(roomId).emit(EVENT_TYPES.HANDOVER, {
@@ -532,14 +490,12 @@ io.on("connection", (socket) => {
     }
   })
 
-  // Add an event for admins to leave a room
   socket.on(EVENT_TYPES.LEAVE_AS_REPRESENTATIVE, (roomId) => {
     socket.leave(roomId)
     const session = Array.from(activeChats.values()).find((s) => s.roomId === roomId)
     if (session) {
       session.isWithRepresentative = false
       activeChats.set(roomId, session)
-      // Notify the AI to resume the conversation
       handleChat(roomId, "The representative has left the conversation. ⚡ai-resume⚡", false, true)
         .then((response) => {
           io.to(roomId).emit(EVENT_TYPES.AI_RESUME, {
@@ -553,13 +509,11 @@ io.on("connection", (socket) => {
     }
   })
 
-  // Handle representative messages
   socket.on(EVENT_TYPES.REPRESENTATIVE_MESSAGE, async ({ roomId, message }) => {
-    // Prevent duplicate message handling
-    if (typeof roomId === 'string' && typeof message === 'string') {
-      await handleRepresentativeMessage(roomId, message);
+    if (typeof roomId === "string" && typeof message === "string") {
+      await handleRepresentativeMessage(roomId, message)
     }
-  });
+  })
 
   socket.on("disconnect", () => {
     const session = activeChats.get(sessionId)
@@ -567,30 +521,25 @@ io.on("connection", (socket) => {
       Session.findOneAndUpdate({ email: session.email }, { chatHistory: session.chatHistory }, { upsert: true }).catch(
         console.error,
       )
-      // Emit user-disconnected event to admin
       io.to("admin").emit("user-disconnected", {
-
         roomId: session.roomId,
         email: session.email,
         timestamp: new Date(),
       })
-    
     }
     activeChats.delete(sessionId)
   })
 })
 
-// Function to handle representative messages
 async function handleRepresentativeMessage(roomId, message) {
-  const session = activeChats.get(roomId);
+  const session = activeChats.get(roomId)
   if (session && session.isWithRepresentative) {
     session.chatHistory.push({
       role: MESSAGE_ROLES.REPRESENTATIVE,
       content: message,
       timestamp: new Date(),
-    });
+    })
 
-    // Emit representative message only once
     io.to(roomId).emit(EVENT_TYPES.REPRESENTATIVE_MESSAGE, {
       message,
       sessionInfo: {
@@ -599,7 +548,7 @@ async function handleRepresentativeMessage(roomId, message) {
         messageCount: session.chatHistory.length,
         type: MESSAGE_ROLES.REPRESENTATIVE,
       },
-    });
+    })
 
     await Session.findOneAndUpdate(
       { email: session.email },
@@ -609,7 +558,7 @@ async function handleRepresentativeMessage(roomId, message) {
         chatHistory: session.chatHistory,
       },
       { upsert: true },
-    );
+    )
   }
 }
 
